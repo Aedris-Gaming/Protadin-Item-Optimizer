@@ -103,6 +103,15 @@ input[type=range]:disabled::-webkit-slider-thumb{background:var(--ink-dim);curso
   <div class="sub">v2 &mdash; per-stat weights, linkable avoidance group, full set totals. Tune and watch each slot's winner update live.</div>
 
   <div class="panel">
+    <div class="sect-title">Presets</div>
+    <div class="ac-toggles" id="presets" style="margin-bottom:6px">
+      <button class="ac-btn" data-preset="threat">Maximized Threat</button>
+      <button class="ac-btn" data-preset="survival">Extreme Survivability</button>
+      <button class="ac-btn" data-preset="balanced">Balanced</button>
+      <button class="ac-btn" data-preset="blocky">Blocky</button>
+      <button class="ac-btn" data-preset="custom" style="display:none">Custom</button>
+    </div>
+    <div class="hint" id="presetNote" style="margin-bottom:14px">Pick a preset to position all sliders, or adjust any slider for a custom setup.</div>
     <div class="sect-title">Threat Weights</div>
     <div class="ctrl-row"><div class="ctrl-label">Spell Damage <small>Holy &mdash; scales Consecration, Judgement, Seals</small></div>
       <input id="w_spellpower" type="range" min="0" max="100" value="10"><div class="val"><span id="v_spellpower">10</span></div></div>
@@ -121,7 +130,7 @@ input[type=range]:disabled::-webkit-slider-thumb{background:var(--ink-dim);curso
         <input id="w_armor" type="range" min="0" max="2" step="0.01" value="0.3"><div class="val"><span id="v_armor">0.30</span></div></div>
       <div class="ctrl-row"><div class="ctrl-label">Stamina <small>raw health pool</small></div>
         <input id="w_sta" type="range" min="0" max="40" value="6"><div class="val"><span id="v_sta">6</span></div></div>
-      <div class="ctrl-row"><div class="ctrl-label">Block Value <small>damage blocked per hit + Holy Shield threat</small></div>
+      <div class="ctrl-row"><div class="ctrl-label">Block Value <small>damage absorbed per block (mitigation, not threat)</small></div>
         <input id="w_blockvalue" type="range" min="0" max="100" value="20"><div class="val"><span id="v_blockvalue">20</span></div></div>
     </div>
 
@@ -138,7 +147,7 @@ input[type=range]:disabled::-webkit-slider-thumb{background:var(--ink-dim);curso
       <div class="ctrl-row" id="masterRow"><div class="ctrl-label">Value of 1% Mitigation <small>spread across def/dodge/parry/block/agi</small></div>
         <input id="w_master" type="range" min="0" max="200" value="100"><div class="val"><span id="v_master">100</span></div></div>
       <!-- INDIVIDUAL -->
-      <div class="ctrl-row sub-stat indiv"><div class="ctrl-label">Block Rating <small>+ chance to block (enables block-value threat)</small></div>
+      <div class="ctrl-row sub-stat indiv"><div class="ctrl-label">Block Rating <small>chance to block; more Holy Shield procs = threat (until avoidance cap)</small></div>
         <input id="w_block" type="range" min="0" max="150" step="0.1" value="30" disabled><div class="val dim"><span id="v_block">30</span></div></div>
       <div class="ctrl-row sub-stat indiv"><div class="ctrl-label">Defense Rating <small>4-way avoidance + uncrit</small></div>
         <input id="w_defense" type="range" min="0" max="150" step="0.1" value="25" disabled><div class="val dim"><span id="v_defense">25</span></div></div>
@@ -392,14 +401,77 @@ function render(){
   let r='';
   if(linked && sp>0){ const onepct=(+els.w_master.value); r='<b>1% mitigation = '+(onepct/sp).toFixed(1)+' spell damage</b>'; }
   if(bv>0&&sp>0) r+=(r?' &middot; ':'')+'<b>1 block value = '+(bv/sp).toFixed(2)+' SP</b>';
-  els.ratioBox.innerHTML=(r||'Set your weights above.')+'<div class="hint">Block Value is the threat-scaling block stat (Holy Shield deals damage on each block). Block Rating, in the avoidance group, is your chance to block.</div>';
+  els.ratioBox.innerHTML=(r||'Set your weights above.')+'<div class="hint">Block Rating is the threat stat: each block triggers Holy Shield\u2019s flat damage, so more block chance = more threat \u2014 but only until the 102.4% avoidance cap, where added dodge/parry/miss pushes block chance off the table. Block Value is pure mitigation (damage absorbed per block); no Paladin ability scales with it in TBC.</div>';
+}
+
+// ---- PRESETS ----
+// Each preset is a full slider configuration. Avoidance ratings are explicit,
+// so applying a preset unlinks the avoidance group (individual values stick).
+const PRESETS={
+  threat:{
+    label:'Maximized Threat',
+    linked:false,
+    w:{ spellpower:10, spellhit:10, hit:0, expertise:0, str:0,
+        armor:0, sta:0, blockvalue:0, resilience:16,
+        block:20.8, defense:10.0, dodge:5.3, parry:4.2, agi:0 }
+  },
+  survival:{
+    label:'Extreme Survivability',
+    linked:false,
+    w:{ spellpower:10, spellhit:10, hit:0, expertise:0, str:0,
+        armor:0.5, sta:18, blockvalue:4, resilience:0,
+        block:4, defense:18, dodge:21, parry:16, agi:0 }
+  },
+  balanced:{
+    label:'Balanced',
+    linked:false,
+    w:{ spellpower:13, spellhit:13, hit:0, expertise:0, str:0,
+        armor:0.5, sta:18, blockvalue:0, resilience:0,
+        block:14, defense:10, dodge:5, parry:4, agi:0 }
+  },
+  blocky:{
+    label:'Blocky',
+    linked:false,
+    w:{ spellpower:9, spellhit:9, hit:0, expertise:0, str:0,
+        armor:0.5, sta:8, blockvalue:15, resilience:0,
+        block:13, defense:10, dodge:5, parry:4, agi:0 }
+  }
+};
+let activePreset=null;
+
+function applyPreset(key){
+  const p=PRESETS[key]; if(!p) return;
+  linked=!!p.linked;
+  for(const k in p.w){ if(els['w_'+k]) els['w_'+k].value=p.w[k]; }
+  activePreset=key;
+  updatePresetButtons();
+  render();
+}
+function updatePresetButtons(){
+  document.querySelectorAll('#presets .ac-btn').forEach(b=>{
+    b.classList.toggle('on', b.dataset.preset===activePreset);
+    if(b.dataset.preset==='custom') b.style.display = (activePreset==='custom')?'':'none';
+  });
+  const note=document.getElementById('presetNote');
+  if(activePreset && activePreset!=='custom'){
+    note.textContent='Preset: '+PRESETS[activePreset].label+'. Move any slider to switch to a custom setup.';
+  } else if(activePreset==='custom'){
+    note.textContent='Custom setup. Pick a preset to reposition all sliders.';
+  } else {
+    note.textContent='Pick a preset to position all sliders, or adjust any slider for a custom setup.';
+  }
+}
+function markCustom(){
+  if(activePreset!=='custom'){ activePreset='custom'; updatePresetButtons(); }
 }
 
 // events
 els.slots.addEventListener('click',e=>{const h=e.target.closest('.slot-head');if(!h||!h.dataset.slot)return;
   const s=h.dataset.slot; if(openSlots.has(s))openSlots.delete(s);else openSlots.add(s); render();});
-Object.keys(els).forEach(k=>{ if(k.startsWith('w_')||k==='wIlvl'){ els[k].addEventListener('input',render);} });
-document.getElementById('linkBtn').addEventListener('click',()=>{linked=!linked;render();});
+Object.keys(els).forEach(k=>{ if(k.startsWith('w_')||k==='wIlvl'){ els[k].addEventListener('input',()=>{ if(k!=='wIlvl') markCustom(); render(); });} });
+document.getElementById('presets').addEventListener('click',e=>{const b=e.target.closest('.ac-btn');if(!b||!b.dataset.preset)return;
+  if(b.dataset.preset==='custom') return; applyPreset(b.dataset.preset);});
+document.getElementById('linkBtn').addEventListener('click',()=>{linked=!linked; markCustom(); render();});
 document.getElementById('acToggles').addEventListener('click',e=>{const b=e.target.closest('.ac-btn');if(!b)return;
   const ac=b.dataset.ac; if(activeAC.has(ac)){if(activeAC.size>1)activeAC.delete(ac);}else activeAC.add(ac);
   b.classList.toggle('on',activeAC.has(ac)); render();});
